@@ -127,17 +127,15 @@ interface GenderizeResponse {
 app.get('/api/classify', async (req: Request, res: Response) => {
   const nameQuery = req.query.name;
 
-  // 1. Requirement: 400 for missing/empty
-  // We check if it exists at all first
-  if (nameQuery === undefined || nameQuery === null || nameQuery === '') {
+  // 1. Missing or empty → 400
+  if (!nameQuery) {
     return res.status(400).json({
       status: 'error',
       message: 'Missing or empty name parameter',
     });
   }
 
-  // 2. Requirement: 422 specifically if it's not a string
-  // To be safe with the bot, we check if it's an array/object first
+  // 2. Invalid type → 422
   if (typeof nameQuery !== 'string') {
     return res.status(422).json({
       status: 'error',
@@ -145,10 +143,9 @@ app.get('/api/classify', async (req: Request, res: Response) => {
     });
   }
 
-  // Now we know 'name' is definitely a string
   const name = nameQuery.trim();
 
-  // Re-check empty after trim
+  // Re-check after trimming
   if (name === '') {
     return res.status(400).json({
       status: 'error',
@@ -158,30 +155,28 @@ app.get('/api/classify', async (req: Request, res: Response) => {
 
   try {
     // Call external API
-    const { data } = await axios.get<GenderizeResponse>('https://api.genderize.io', {
-      params: { name },
-      timeout: 4000,
-    });
+    const { data } = await axios.get<GenderizeResponse>(
+      'https://api.genderize.io',
+      {
+        params: { name },
+        timeout: 4000,
+      }
+    );
 
-    // 3. Handle Genderize edge cases (count 0 or null gender)
-    if (!data.gender || data.count === 0) {
-      return res.status(422).json({
-        status: 'error',
-        message: 'No prediction available for the provided name',
-      });
-    }
+    // IMPORTANT: DO NOT return 422 here
+    // Always return success even if gender is null
 
-    // 4. Compute Confidence Logic
-    const sample_size = data.count;
-    const probability = data.probability;
+    const sample_size = data.count ?? 0;
+    const probability = data.probability ?? 0;
+    const gender = data.gender ?? null;
+
     const is_confident = probability >= 0.7 && sample_size >= 100;
 
-    // 5. Requirement: Final Success Structure
     return res.status(200).json({
       status: 'success',
       data: {
         name: name.toLowerCase(),
-        gender: data.gender,
+        gender: gender,
         probability: probability,
         sample_size: sample_size,
         is_confident: is_confident,
@@ -190,7 +185,7 @@ app.get('/api/classify', async (req: Request, res: Response) => {
     });
 
   } catch (error) {
-    // 502 for upstream failures (as per requirements)
+    // 502 for upstream failures
     return res.status(502).json({
       status: 'error',
       message: 'Failed to reach upstream API',
@@ -199,4 +194,4 @@ app.get('/api/classify', async (req: Request, res: Response) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Wizarding on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
